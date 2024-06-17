@@ -150,9 +150,12 @@ def make_judge_pairwise(judge_model, judge_prompts):
     return judges
 
 
-def make_judge_single(judge_model, judge_prompts):
+def make_judge_single(judge_model, judge_prompts, judge_prompt):
     judges = {}
-    judges["default"] = Judge(judge_model, judge_prompts["single-v1"])
+    if judge_prompt:
+        judges["default"] = Judge(judge_model, judge_prompts[args.judge_prompt])
+    else:
+        judges["default"] = Judge(judge_model, judge_prompts["single-v1"])
     judges["math"] = Judge(judge_model, judge_prompts["single-math-v1"], ref_based=True)
     judges["default-mt"] = Judge(
         judge_model, judge_prompts["single-v1-multi-turn"], multi_turn=True
@@ -181,6 +184,7 @@ if __name__ == "__main__":
         help="The file of judge prompts.",
     )
     parser.add_argument("--judge-model", type=str, default="gpt-4")
+    parser.add_argument("--judge-prompt", type=str, default=None)    
     parser.add_argument("--baseline-model", type=str, default="gpt-3.5-turbo")
     parser.add_argument(
         "--mode",
@@ -232,10 +236,10 @@ if __name__ == "__main__":
         models = args.model_list
 
     if args.mode == "single":
-        judges = make_judge_single(args.judge_model, judge_prompts)
+        judges = make_judge_single(args.judge_model, judge_prompts, args.judge_prompt)
         play_a_match_func = play_a_match_single
         output_file = (
-            f"data/{args.bench_name}/model_judgment/{args.judge_model}_single.jsonl"
+            f"data/{args.bench_name}/model_judgment/{args.judge_model}_{args.judge_prompt}.jsonl"
         )
         make_match_func = make_match_single
         baseline_model = None
@@ -301,7 +305,7 @@ if __name__ == "__main__":
     # Show match stats and prompt enter to continue
     print("Stats:")
     print(json.dumps(match_stat, indent=4))
-    input("Press Enter to confirm...")
+    #input("Press Enter to confirm...")
 
     # Play matches
     if args.parallel == 1:

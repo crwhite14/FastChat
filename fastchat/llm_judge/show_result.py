@@ -4,6 +4,7 @@ python3 show_result.py --mode [single|pairwise-baseline|pairwise-all]
 """
 import argparse
 import pandas as pd
+import numpy as np
 
 
 def display_result_single(args):
@@ -16,14 +17,21 @@ def display_result_single(args):
 
     print(f"Input file: {input_file}")
     df_all = pd.read_json(input_file, lines=True)
-    df = df_all[["model", "score", "turn"]]
+    df = df_all[["model", "score", "turn", "question_id"]]
     df = df[df["score"] != -1]
+    if args.question_start and args.question_end:
+        print('here', len(df))
+        df = df[(df["question_id"] >= args.question_start) & (df["question_id"] <= args.question_end)]
+        print('here', len(df))
+    df = df[["model", "score", "turn"]]
 
     if args.model_list is not None:
         df = df[df["model"].isin(args.model_list)]
 
-    print("\n########## First turn ##########")
+    print("\n########## LLM Judge ##########")
     df_1 = df[df["turn"] == 1].groupby(["model", "turn"]).mean()
+    df_1.loc[:, 'score'] = df_1['score'] * 100
+    df_1 = df_1.round(3)
     print(df_1.sort_values(by="score", ascending=False))
 
     if args.bench_name == "mt_bench":
@@ -34,6 +42,54 @@ def display_result_single(args):
         print("\n########## Average ##########")
         df_3 = df[["model", "score"]].groupby(["model"]).mean()
         print(df_3.sort_values(by="score", ascending=False))
+
+    df_all = pd.read_json(input_file, lines=True)
+    df = df_all[["model", "score", "question_id"]]
+    df = df[df["score"] != -1]
+    if args.question_start and args.question_end:
+        df = df[(df["question_id"] >= args.question_start) & (df["question_id"] <= args.question_end)]
+
+    # now compute correlation with livebench
+    if args.bench_name == 'math_comp':
+        livebench_file = "ablation_data/math_comp_judgment.jsonl"
+    elif args.bench_name == 'zebra':
+        livebench_file = "ablation_data/zebra_judgment.jsonl"
+    df_livebench = pd.read_json(livebench_file, lines=True)
+
+    df_livebench = df_livebench[["model", "score", "question_id"]]
+    df_livebench = df_livebench[df_livebench["score"] != -1]
+    if args.question_start and args.question_end:
+        df_livebench = df_livebench[(df_livebench["question_id"] >= args.question_start) & (df_livebench["question_id"] <= args.question_end)]
+
+    model_list = (
+        df_all["model"].unique().tolist()
+    )
+    model_list = list(set(model_list))
+    print('model list', model_list)
+
+
+    print('livebench scores')
+    #df_lb = df_livebench[df_livebench["model"].isin([model_list])]
+    df_lb = df_livebench[["model", "score"]].groupby(["model"]).mean()
+    df_lb = df_lb[df_lb.index.isin(model_list)]
+    df_lb.loc[:, 'score'] = df_lb['score'] * 100
+    df_lb = df_lb.round(3)
+    print(df_lb.sort_values(by="score", ascending=False))
+
+    for model in model_list:
+        df_1 = df[df["model"].isin([model])]
+        df_2 = df_livebench[df_livebench["model"].isin([model])]
+        #df_2.loc[:, 'score'] = df_2['score']
+        df_1 = df_1[["question_id", "score"]]
+        df_2 = df_2[["question_id", "score"]]
+        merged_df = pd.merge(df_1, df_2, on="question_id", suffixes=("_1", "_2"))
+        correlation = merged_df["score_1"].corr(merged_df["score_2"])
+        accuracy = (merged_df["score_1"] == merged_df["score_2"]).mean()
+        error = (merged_df["score_1"] != merged_df["score_2"]).mean()
+        print("Correlation", model, np.round(correlation, 3))
+        print("Accuracy", model, np.round(accuracy, 3))
+        print("Error", model, np.round(error, 3))
+        print()
 
 
 def display_result_pairwise(args):
@@ -117,6 +173,13 @@ if __name__ == "__main__":
             "`single` runs single answer grading."
         ),
     )
+    parser.add_argument(
+        "--question-start", type=int, help="qid to start"
+    )
+    parser.add_argument(
+        "--question-end", type=int, help="qid to end"
+    )
+    args = parser.parse_args()
     args = parser.parse_args()
 
     if args.mode == "single":
